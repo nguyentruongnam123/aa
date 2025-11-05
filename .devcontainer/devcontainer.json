@@ -1,0 +1,22 @@
+{
+  "name": "Windows GUI VPS",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "postCreateCommand": "sudo apt update && sudo DEBIAN_FRONTEND=noninteractive apt install -y xfce4 xfce4-goodies tigervnc-standalone-server novnc python3-websockify && mkdir -p ~/.vnc && echo 'password123' | vncpasswd -f > ~/.vnc/passwd && chmod 600 ~/.vnc/passwd && echo '#!/bin/bash\nunset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nstartxfce4 &' > ~/.vnc/xstartup && chmod +x ~/.vnc/xstartup && vncserver :1 -geometry 1920x1080 -depth 24 && nohup /usr/share/novnc/utils/novnc_proxy --vnc localhost:5901 --listen 8080 &",
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {}
+  },
+  "forwardPorts": [
+    8080,
+    5901
+  ],
+  "portsAttributes": {
+    "5901": {
+      "label": "VNC Server",
+      "onAutoForward": "silent"
+    },
+    "8080": {
+      "label": "noVNC Desktop",
+      "onAutoForward": "openBrowser"
+    }
+  }
+}
