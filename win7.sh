@@ -1,49 +1,51 @@
-#!/bin/bash
-# Windows 7 VM cho Google Colab - Fixed PTY issue
-# Chạy trong background, không cần PTY
+# ============================================================
+# CHẠY CODE NÀY TRỰC TIẾP TRÊN GOOGLE COLAB
+# Không cần tải file, copy/paste và chạy!
+# ============================================================
 
+print("🚀 Đang khởi động Windows 7 VM...")
+print("=" * 60)
+
+# Tạo bash script inline
+bash_script = """#!/bin/bash
 set -e
 
-# Redirect tất cả output để không cần PTY
-exec 1>/tmp/install.log 2>&1
+echo "📦 Installing packages..."
+apt-get update -qq > /dev/null 2>&1
 
-echo "Starting Windows 7 VM installation..."
-
-# Update system
-apt-get update -qq
-
-# Install packages
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
     qemu-system-x86 \
     qemu-utils \
-    curl \
     wget \
+    curl \
     git \
     python3-pip \
-    net-tools
+    net-tools > /dev/null 2>&1
 
-# Install websockify
-pip3 install -q websockify
+echo "🔌 Installing websockify..."
+pip3 install -q websockify > /dev/null 2>&1
 
-# Clone noVNC
+echo "🌐 Installing noVNC..."
 if [ ! -d "/opt/novnc" ]; then
     git clone -q https://github.com/novnc/noVNC.git /opt/novnc
     git clone -q https://github.com/novnc/websockify /opt/novnc/utils/websockify
 fi
 
-# Create directory
+echo "💾 Setting up Windows 7..."
 mkdir -p /root/win7vm
 cd /root/win7vm
 
-# Download Tiny Windows 7 ISO (700MB)
+# Download Windows 7 ISO
 if [ ! -f "win7.iso" ]; then
-    echo "Downloading Windows 7 ISO..."
-    wget -q -O win7.iso "https://archive.org/download/tiny-7-rev-01/Tiny7Rev01.iso" || exit 1
+    echo "📥 Downloading Tiny Windows 7 (700MB)..."
+    wget -q --show-progress -O win7.iso \
+        "https://archive.org/download/tiny-7-rev-01/Tiny7Rev01.iso"
 fi
 
-# Create virtual disk
+# Create disk
 if [ ! -f "win7.qcow2" ]; then
-    qemu-img create -f qcow2 win7.qcow2 20G
+    echo "💿 Creating 20GB virtual disk..."
+    qemu-img create -f qcow2 win7.qcow2 20G > /dev/null 2>&1
 fi
 
 # Kill old processes
@@ -52,27 +54,20 @@ pkill -9 websockify 2>/dev/null || true
 pkill -9 cloudflared 2>/dev/null || true
 sleep 2
 
-# Get RAM
+# Calculate RAM
 TOTAL_RAM=$(free -m | awk '/^Mem:/{print $2}')
 VM_RAM=$((TOTAL_RAM * 60 / 100))
-if [ $VM_RAM -gt 3072 ]; then
-    VM_RAM=3072
-fi
-if [ $VM_RAM -lt 1536 ]; then
-    VM_RAM=1536
-fi
+[ $VM_RAM -gt 3072 ] && VM_RAM=3072
+[ $VM_RAM -lt 1536 ] && VM_RAM=1536
+
+echo "🖥️ Starting Windows 7 VM (${VM_RAM}MB RAM)..."
+
+# Check if installed
+BOOT_OPT="-cdrom win7.iso -boot d"
+[ -f "installed.flag" ] && BOOT_OPT=""
 
 # Start QEMU
-echo "Starting Windows 7 VM with ${VM_RAM}MB RAM..."
-
-# Check if Windows is installed
-if [ -f "installed.flag" ]; then
-    BOOT_OPT=""
-else
-    BOOT_OPT="-cdrom win7.iso -boot d"
-fi
-
-nohup qemu-system-x86_64 \
+qemu-system-x86_64 \
     -enable-kvm \
     -cpu host \
     -smp 2 \
@@ -91,100 +86,113 @@ QEMU_PID=$!
 echo $QEMU_PID > /tmp/qemu.pid
 sleep 5
 
-# Check QEMU
-if ! ps -p $QEMU_PID > /dev/null 2>&1; then
-    echo "QEMU failed to start!"
-    cat /tmp/qemu.log
+if ! ps -p $QEMU_PID > /dev/null; then
+    echo "❌ QEMU failed!"
     exit 1
 fi
 
+echo "✅ QEMU started (PID: $QEMU_PID)"
+
 # Start noVNC
-nohup /opt/novnc/utils/novnc_proxy --vnc localhost:5900 --listen 6080 > /tmp/novnc.log 2>&1 &
+echo "🌍 Starting noVNC..."
+/opt/novnc/utils/novnc_proxy --vnc localhost:5900 --listen 6080 > /tmp/novnc.log 2>&1 &
 sleep 5
 
-# Install Cloudflare Tunnel
+# Install Cloudflare
 if ! command -v cloudflared &> /dev/null; then
+    echo "☁️ Installing Cloudflare..."
     wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-    dpkg -i cloudflared-linux-amd64.deb
+    dpkg -i cloudflared-linux-amd64.deb > /dev/null 2>&1
     rm cloudflared-linux-amd64.deb
 fi
 
-# Start Cloudflare Tunnel
-nohup cloudflared tunnel --url http://localhost:6080 > /tmp/tunnel.log 2>&1 &
-sleep 10
+echo "🚀 Starting tunnel..."
+cloudflared tunnel --url http://localhost:6080 > /tmp/tunnel.log 2>&1 &
+sleep 15
 
-# Save info to status file
-cat > /tmp/vm_status.txt << EOF
-╔════════════════════════════════════════════════════════════╗
-║           ✅ WINDOWS 7 VM ĐÃ KHỞI ĐỘNG THÀNH CÔNG!        ║
-╚════════════════════════════════════════════════════════════╝
-
-🌐 URL truy cập:
-EOF
-
-# Get Cloudflare URL
+# Get URL
+PUBLIC_URL=""
 for i in {1..30}; do
-    if [ -f /tmp/tunnel.log ]; then
-        PUBLIC_URL=$(grep -o 'https://.*\.trycloudflare.com' /tmp/tunnel.log | head -1)
-        if [ ! -z "$PUBLIC_URL" ]; then
-            echo "" >> /tmp/vm_status.txt
-            echo "   ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓" >> /tmp/vm_status.txt
-            echo "   ┃  👉 $PUBLIC_URL/vnc.html" >> /tmp/vm_status.txt
-            echo "   ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛" >> /tmp/vm_status.txt
-            break
-        fi
-    fi
+    [ -f /tmp/tunnel.log ] && PUBLIC_URL=$(grep -o 'https://.*\.trycloudflare.com' /tmp/tunnel.log | head -1)
+    [ ! -z "$PUBLIC_URL" ] && break
     sleep 1
 done
 
-cat >> /tmp/vm_status.txt << EOF
+# Output result
+echo ""
+echo "╔════════════════════════════════════════════════════════════╗"
+echo "║         ✅ WINDOWS 7 VM ĐÃ KHỞI ĐỘNG THÀNH CÔNG!          ║"
+echo "╚════════════════════════════════════════════════════════════╝"
+echo ""
 
-📱 Local URL: http://localhost:6080/vnc.html
-
-╔════════════════════════════════════════════════════════════╗
-║  💡 HƯỚNG DẪN:                                              ║
-║                                                            ║
-║  1. Mở URL trên → Click "Connect"                          ║
-║  2. Nếu lần đầu: Cài Windows 7 (10-15 phút)                ║
-║  3. Nếu đã cài: Login và sử dụng                           ║
-║                                                            ║
-║  📌 Sau khi cài xong Windows, chạy lệnh:                   ║
-║     touch /root/win7vm/installed.flag                      ║
-║                                                            ║
-║  ⚡ Tips:                                                   ║
-║  • Cài Windows như bình thường                             ║
-║  • Chọn Custom installation                                ║
-║  • Format disk và install                                  ║
-║  • Bỏ qua Product Key                                      ║
-╚════════════════════════════════════════════════════════════╝
-
-📊 VM Info:
-   • Windows 7 VM
-   • RAM: ${VM_RAM}MB
-   • Disk: 20GB
-   • CPU: 2 cores
-   • QEMU PID: $QEMU_PID
-
-📊 Status:
-   • QEMU:   $(ps -p $QEMU_PID >/dev/null && echo '✅ Running' || echo '❌ Stopped')
-   • VNC:    $(netstat -tuln 2>/dev/null | grep -q ':5900' && echo '✅ Running' || echo '❌ Stopped')
-   • noVNC:  $(netstat -tuln 2>/dev/null | grep -q ':6080' && echo '✅ Running' || echo '❌ Stopped')
-   • Tunnel: $(pgrep cloudflared >/dev/null && echo '✅ Running' || echo '❌ Stopped')
-
-📋 Log files:
-   • Installation: cat /tmp/install.log
-   • QEMU:        cat /tmp/qemu.log
-   • Tunnel:      cat /tmp/tunnel.log
-   • noVNC:       cat /tmp/novnc.log
-
-⚡ VM đang chạy trong background!
-   Để xem thông tin: cat /tmp/vm_status.txt
-   Để dừng VM: kill $(cat /tmp/qemu.pid)
-EOF
-
-# Output to stdout for Colab
-cat /tmp/vm_status.txt
+if [ ! -z "$PUBLIC_URL" ]; then
+    echo "🌐 URL công khai:"
+    echo ""
+    echo "   👉 $PUBLIC_URL/vnc.html"
+    echo ""
+    echo "   Copy link trên vào trình duyệt!"
+else
+    echo "⚠️ Chưa lấy được URL. Kiểm tra:"
+    echo "   cat /tmp/tunnel.log | grep trycloudflare"
+fi
 
 echo ""
-echo "✅ Script completed! VM is running in background."
-echo "   Check /tmp/vm_status.txt for URL and info."
+echo "📱 Local: http://localhost:6080/vnc.html"
+echo ""
+echo "╔════════════════════════════════════════════════════════════╗"
+echo "║  💡 HƯỚNG DẪN:                                              ║"
+echo "║  1. Mở URL → Click Connect                                 ║"
+echo "║  2. Lần đầu: Cài Windows 7 (10-15 phút)                    ║"
+echo "║  3. Sau khi cài xong:                                      ║"
+echo "║     !touch /root/win7vm/installed.flag                     ║"
+echo "║  4. Lần sau sẽ boot thẳng vào Windows!                     ║"
+echo "╚════════════════════════════════════════════════════════════╝"
+echo ""
+echo "📊 Status:"
+echo "   • QEMU:   $(ps -p $QEMU_PID >/dev/null && echo '✅' || echo '❌')"
+echo "   • VNC:    $(netstat -tuln | grep -q ':5900' && echo '✅' || echo '❌')"
+echo "   • noVNC:  $(netstat -tuln | grep -q ':6080' && echo '✅' || echo '❌')"
+echo "   • Tunnel: $(pgrep cloudflared >/dev/null && echo '✅' || echo '❌')"
+echo ""
+echo "⚡ VM đang chạy trong background!"
+"""
+
+# Lưu script vào file
+import os
+with open('/tmp/win7_setup.sh', 'w') as f:
+    f.write(bash_script)
+
+os.chmod('/tmp/win7_setup.sh', 0o755)
+
+print("✅ Script đã tạo xong!")
+print("🔄 Đang chạy script...")
+print("=" * 60)
+print()
+
+# Chạy script
+import subprocess
+import time
+
+# Chạy và hiển thị output real-time
+process = subprocess.Popen(
+    ['bash', '/tmp/win7_setup.sh'],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    universal_newlines=True
+)
+
+# Đọc output
+for line in process.stdout:
+    print(line, end='')
+
+process.wait()
+
+print()
+print("=" * 60)
+print("✅ Hoàn tất! Kiểm tra URL ở trên để truy cập Windows 7!")
+print()
+print("📌 Lệnh hữu ích:")
+print("   • Xem log QEMU:   !cat /tmp/qemu.log")
+print("   • Xem log tunnel: !cat /tmp/tunnel.log")
+print("   • Xem PID:        !cat /tmp/qemu.pid")
+print("   • Dừng VM:        !kill $(cat /tmp/qemu.pid)")
