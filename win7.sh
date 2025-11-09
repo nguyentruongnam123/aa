@@ -1,198 +1,243 @@
-# ============================================================
-# CHẠY CODE NÀY TRỰC TIẾP TRÊN GOOGLE COLAB
-# Không cần tải file, copy/paste và chạy!
-# ============================================================
+#!/bin/bash
+# Script khởi động Ubuntu Desktop VPS
+# Có thể chạy trên Colab, GitHub Actions, hoặc VPS Linux
 
-print("🚀 Đang khởi động Windows 7 VM...")
-print("=" * 60)
-
-# Tạo bash script inline
-bash_script = """#!/bin/bash
 set -e
 
-echo "📦 Installing packages..."
+echo "🔧 Đang cài đặt Ubuntu Desktop VPS..."
+
+# Update system
 apt-get update -qq > /dev/null 2>&1
 
+# Cài đặt dependencies cơ bản
+echo "📦 Cài đặt packages cơ bản..."
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-    qemu-system-x86 \
-    qemu-utils \
+    xvfb \
+    x11vnc \
     wget \
     curl \
+    unzip \
     git \
+    python3 \
     python3-pip \
-    net-tools > /dev/null 2>&1
+    python3-numpy \
+    software-properties-common \
+    dbus-x11 > /dev/null 2>&1
 
-echo "🔌 Installing websockify..."
+# Cài đặt Ubuntu Desktop (GNOME hoặc XFCE)
+echo "🖥️  Cài đặt Ubuntu Desktop Environment..."
+echo "   (Đang cài Ubuntu Desktop, có thể mất 2-3 phút...)"
+
+# Sử dụng XFCE vì nhẹ hơn cho VPS
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+    ubuntu-desktop \
+    xubuntu-desktop \
+    firefox \
+    gedit \
+    nautilus \
+    gnome-terminal \
+    gnome-calculator \
+    gnome-system-monitor > /dev/null 2>&1
+
+# Cài đặt websockify từ pip
+echo "🔌 Cài đặt websockify..."
 pip3 install -q websockify > /dev/null 2>&1
 
-echo "🌐 Installing noVNC..."
+# Clone noVNC từ GitHub
+echo "🌐 Cài đặt noVNC..."
 if [ ! -d "/opt/novnc" ]; then
-    git clone -q https://github.com/novnc/noVNC.git /opt/novnc
-    git clone -q https://github.com/novnc/websockify /opt/novnc/utils/websockify
+    git clone -q https://github.com/novnc/noVNC.git /opt/novnc > /dev/null 2>&1
+    git clone -q https://github.com/novnc/websockify /opt/novnc/utils/websockify > /dev/null 2>&1
 fi
 
-echo "💾 Setting up Windows 7..."
-mkdir -p /root/win7vm
-cd /root/win7vm
-
-# Download Windows 7 ISO
-if [ ! -f "win7.iso" ]; then
-    echo "📥 Downloading Tiny Windows 7 (700MB)..."
-    wget -q --show-progress -O win7.iso \
-        "https://archive.org/download/tiny-7-rev-01/Tiny7Rev01.iso"
+# Cài đặt Google Chrome
+echo "🌐 Cài đặt Google Chrome..."
+if ! command -v google-chrome &> /dev/null; then
+    wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+    apt-get install -y -qq ./google-chrome-stable_current_amd64.deb > /dev/null 2>&1
+    rm google-chrome-stable_current_amd64.deb
 fi
 
-# Create disk
-if [ ! -f "win7.qcow2" ]; then
-    echo "💿 Creating 20GB virtual disk..."
-    qemu-img create -f qcow2 win7.qcow2 20G > /dev/null 2>&1
-fi
+# Cài đặt các ứng dụng Ubuntu phổ biến
+echo "📱 Cài đặt ứng dụng Ubuntu..."
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+    vlc \
+    gimp \
+    libreoffice \
+    thunderbird \
+    synaptic > /dev/null 2>&1 || true
 
-# Kill old processes
-pkill -9 qemu-system 2>/dev/null || true
+# Dọn dẹp các process cũ nếu có
+echo "🧹 Dọn dẹp processes cũ..."
+pkill -9 Xvfb 2>/dev/null || true
+pkill -9 x11vnc 2>/dev/null || true
 pkill -9 websockify 2>/dev/null || true
 pkill -9 cloudflared 2>/dev/null || true
+pkill -9 startxfce4 2>/dev/null || true
+pkill -9 xfce4-session 2>/dev/null || true
 sleep 2
 
-# Calculate RAM
-TOTAL_RAM=$(free -m | awk '/^Mem:/{print $2}')
-VM_RAM=$((TOTAL_RAM * 60 / 100))
-[ $VM_RAM -gt 3072 ] && VM_RAM=3072
-[ $VM_RAM -lt 1536 ] && VM_RAM=1536
+# Khởi động Xvfb
+echo "🖥️  Khởi động Virtual Display..."
+Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
+export DISPLAY=:99
+sleep 3
 
-echo "🖥️ Starting Windows 7 VM (${VM_RAM}MB RAM)..."
-
-# Check if installed
-BOOT_OPT="-cdrom win7.iso -boot d"
-[ -f "installed.flag" ] && BOOT_OPT=""
-
-# Start QEMU
-qemu-system-x86_64 \
-    -enable-kvm \
-    -cpu host \
-    -smp 2 \
-    -m ${VM_RAM}M \
-    -drive file=win7.qcow2,format=qcow2,if=virtio \
-    $BOOT_OPT \
-    -vnc 0.0.0.0:0 \
-    -device VGA,vgamem_mb=64 \
-    -net nic,model=rtl8139 \
-    -net user \
-    -rtc base=localtime \
-    -usb -device usb-tablet \
-    > /tmp/qemu.log 2>&1 &
-
-QEMU_PID=$!
-echo $QEMU_PID > /tmp/qemu.pid
+# Khởi động Desktop Environment (XFCE)
+echo "🎨 Khởi động Ubuntu Desktop..."
+startxfce4 > /tmp/desktop.log 2>&1 &
 sleep 5
 
-if ! ps -p $QEMU_PID > /dev/null; then
-    echo "❌ QEMU failed!"
+# Khởi động VNC Server
+echo "🔌 Khởi động VNC Server..."
+x11vnc -display :99 -nopw -listen 0.0.0.0 -xkb -forever -shared -repeat > /tmp/x11vnc.log 2>&1 &
+sleep 3
+
+# Kiểm tra VNC đã chạy chưa
+if ! pgrep -x "x11vnc" > /dev/null; then
+    echo "❌ Lỗi: VNC Server không khởi động được!"
     exit 1
 fi
 
-echo "✅ QEMU started (PID: $QEMU_PID)"
-
-# Start noVNC
-echo "🌍 Starting noVNC..."
+# Khởi động noVNC với websockify
+echo "🌍 Khởi động Web VNC (noVNC)..."
 /opt/novnc/utils/novnc_proxy --vnc localhost:5900 --listen 6080 > /tmp/novnc.log 2>&1 &
 sleep 5
 
-# Install Cloudflare
+# Kiểm tra noVNC đã chạy chưa
+if ! netstat -tuln | grep -q ':6080'; then
+    echo "❌ Lỗi: noVNC không khởi động được!"
+    echo "📋 Log noVNC:"
+    cat /tmp/novnc.log
+    exit 1
+fi
+
+# Cài đặt Cloudflare Tunnel
+echo "☁️  Cài đặt Cloudflare Tunnel..."
 if ! command -v cloudflared &> /dev/null; then
-    echo "☁️ Installing Cloudflare..."
     wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
     dpkg -i cloudflared-linux-amd64.deb > /dev/null 2>&1
     rm cloudflared-linux-amd64.deb
 fi
 
-echo "🚀 Starting tunnel..."
+# Khởi động Tunnel
+echo "🚀 Khởi động Public Tunnel..."
 cloudflared tunnel --url http://localhost:6080 > /tmp/tunnel.log 2>&1 &
-sleep 15
 
-# Get URL
+# Đợi tunnel khởi động và lấy URL
+echo "⏳ Đang tạo public URL..."
+sleep 10
+
+# Hiển thị thông tin
+echo ""
+echo "╔════════════════════════════════════════════════════════════╗"
+echo "║        ✅ UBUNTU DESKTOP VPS ĐÃ KHỞI ĐỘNG THÀNH CÔNG!     ║"
+echo "╚════════════════════════════════════════════════════════════╝"
+echo ""
+
+# Lấy URL từ log với retry
 PUBLIC_URL=""
-for i in {1..30}; do
-    [ -f /tmp/tunnel.log ] && PUBLIC_URL=$(grep -o 'https://.*\.trycloudflare.com' /tmp/tunnel.log | head -1)
-    [ ! -z "$PUBLIC_URL" ] && break
+for i in {1..20}; do
+    if [ -f /tmp/tunnel.log ]; then
+        PUBLIC_URL=$(grep -o 'https://.*\.trycloudflare.com' /tmp/tunnel.log | head -1)
+        if [ ! -z "$PUBLIC_URL" ]; then
+            break
+        fi
+    fi
     sleep 1
 done
 
-# Output result
-echo ""
-echo "╔════════════════════════════════════════════════════════════╗"
-echo "║         ✅ WINDOWS 7 VM ĐÃ KHỞI ĐỘNG THÀNH CÔNG!          ║"
-echo "╚════════════════════════════════════════════════════════════╝"
-echo ""
-
 if [ ! -z "$PUBLIC_URL" ]; then
-    echo "🌐 URL công khai:"
+    echo "🌐 URL công khai (Cloudflare Tunnel):"
     echo ""
-    echo "   👉 $PUBLIC_URL/vnc.html"
+    echo "   ┌────────────────────────────────────────────────────┐"
+    echo "   │  👉 $PUBLIC_URL/vnc.html"
+    echo "   └────────────────────────────────────────────────────┘"
     echo ""
-    echo "   Copy link trên vào trình duyệt!"
+    echo "   📋 Copy link này vào trình duyệt:"
+    echo "   $PUBLIC_URL/vnc.html"
 else
-    echo "⚠️ Chưa lấy được URL. Kiểm tra:"
-    echo "   cat /tmp/tunnel.log | grep trycloudflare"
+    echo "⚠️  Chưa lấy được public URL, kiểm tra log:"
+    echo "   cat /tmp/tunnel.log"
+    echo ""
+    echo "   Hoặc sử dụng local URL nếu bạn đang chạy local:"
 fi
 
 echo ""
-echo "📱 Local: http://localhost:6080/vnc.html"
+echo "📱 URL local (nếu chạy trên máy của bạn):"
+echo "   👉 http://localhost:6080/vnc.html"
 echo ""
 echo "╔════════════════════════════════════════════════════════════╗"
-echo "║  💡 HƯỚNG DẪN:                                              ║"
-echo "║  1. Mở URL → Click Connect                                 ║"
-echo "║  2. Lần đầu: Cài Windows 7 (10-15 phút)                    ║"
-echo "║  3. Sau khi cài xong:                                      ║"
-echo "║     !touch /root/win7vm/installed.flag                     ║"
-echo "║  4. Lần sau sẽ boot thẳng vào Windows!                     ║"
+echo "║  💡 HƯỚNG DẪN SỬ DỤNG UBUNTU DESKTOP:                      ║"
+echo "║                                                            ║"
+echo "║  1. Mở URL trên trình duyệt                                ║"
+echo "║  2. Click 'Connect' để kết nối                             ║"
+echo "║  3. Bạn sẽ thấy Ubuntu Desktop đầy đủ                      ║"
+echo "║                                                            ║"
+echo "║  📂 Ứng dụng đã cài sẵn:                                   ║"
+echo "║  • Google Chrome - Trình duyệt web                         ║"
+echo "║  • Firefox - Trình duyệt web                               ║"
+echo "║  • LibreOffice - Bộ Office (Word, Excel, PowerPoint)      ║"
+echo "║  • GIMP - Chỉnh sửa ảnh                                    ║"
+echo "║  • VLC - Xem video                                         ║"
+echo "║  • Files (Nautilus) - Quản lý file                         ║"
+echo "║  • Terminal - Command line                                 ║"
+echo "║  • Text Editor (gedit) - Soạn thảo văn bản                 ║"
+echo "║  • Calculator - Máy tính                                   ║"
+echo "║  • System Monitor - Theo dõi hệ thống                      ║"
+echo "║                                                            ║"
+echo "║  ⚡ Tips:                                                   ║"
+echo "║  - Nhấn F11 để fullscreen                                  ║"
+echo "║  - Click Applications ở góc trên trái để mở menu           ║"
+echo "║  - Right-click trên desktop để tùy chỉnh                   ║"
+echo "║  - Có thể cài thêm app qua Ubuntu Software hoặc apt        ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
-echo "📊 Status:"
-echo "   • QEMU:   $(ps -p $QEMU_PID >/dev/null && echo '✅' || echo '❌')"
-echo "   • VNC:    $(netstat -tuln | grep -q ':5900' && echo '✅' || echo '❌')"
-echo "   • noVNC:  $(netstat -tuln | grep -q ':6080' && echo '✅' || echo '❌')"
-echo "   • Tunnel: $(pgrep cloudflared >/dev/null && echo '✅' || echo '❌')"
+
+# Hiển thị status
+echo "📊 Status các services:"
+echo "   • Xvfb (Display):     $(pgrep -x Xvfb > /dev/null && echo '✅ Running' || echo '❌ Not running')"
+echo "   • Ubuntu Desktop:     $(pgrep -f startxfce4 > /dev/null && echo '✅ Running' || echo '❌ Not running')"
+echo "   • x11vnc (VNC):       $(pgrep -x x11vnc > /dev/null && echo '✅ Running' || echo '❌ Not running')"
+echo "   • noVNC (Web):        $(netstat -tuln | grep -q ':6080' && echo '✅ Running on :6080' || echo '❌ Not running')"
+echo "   • Cloudflared:        $(pgrep -x cloudflared > /dev/null && echo '✅ Running' || echo '❌ Not running')"
 echo ""
-echo "⚡ VM đang chạy trong background!"
-"""
 
-# Lưu script vào file
-import os
-with open('/tmp/win7_setup.sh', 'w') as f:
-    f.write(bash_script)
+# Log files
+echo "📋 Log files để debug:"
+echo "   • Tunnel log:   tail -f /tmp/tunnel.log"
+echo "   • VNC log:      tail -f /tmp/x11vnc.log"
+echo "   • noVNC log:    tail -f /tmp/novnc.log"
+echo "   • Desktop log:  tail -f /tmp/desktop.log"
+echo ""
 
-os.chmod('/tmp/win7_setup.sh', 0o755)
+# Thông tin hệ thống
+echo "💻 Thông tin hệ thống:"
+echo "   • OS: $(lsb_release -d | cut -f2)"
+echo "   • Kernel: $(uname -r)"
+echo "   • RAM: $(free -h | awk '/^Mem:/ {print $2}')"
+echo "   • Disk: $(df -h / | awk 'NR==2 {print $2}')"
+echo ""
 
-print("✅ Script đã tạo xong!")
-print("🔄 Đang chạy script...")
-print("=" * 60)
-print()
+# Giữ script chạy
+echo "⚡ Ubuntu Desktop VPS đang chạy. Nhấn Ctrl+C để dừng..."
+echo "   (Script sẽ tự động cleanup khi dừng)"
+echo ""
 
-# Chạy script
-import subprocess
-import time
+# Trap để cleanup khi exit
+cleanup() {
+    echo ""
+    echo "🛑 Đang dừng services..."
+    pkill -9 cloudflared 2>/dev/null || true
+    pkill -9 websockify 2>/dev/null || true
+    pkill -9 x11vnc 2>/dev/null || true
+    pkill -9 startxfce4 2>/dev/null || true
+    pkill -9 xfce4-session 2>/dev/null || true
+    pkill -9 Xvfb 2>/dev/null || true
+    echo "✅ Đã dừng tất cả services"
+}
 
-# Chạy và hiển thị output real-time
-process = subprocess.Popen(
-    ['bash', '/tmp/win7_setup.sh'],
-    stdout=subprocess.PIPE,
-    stderr=subprocess.STDOUT,
-    universal_newlines=True
-)
+trap cleanup EXIT
 
-# Đọc output
-for line in process.stdout:
-    print(line, end='')
-
-process.wait()
-
-print()
-print("=" * 60)
-print("✅ Hoàn tất! Kiểm tra URL ở trên để truy cập Windows 7!")
-print()
-print("📌 Lệnh hữu ích:")
-print("   • Xem log QEMU:   !cat /tmp/qemu.log")
-print("   • Xem log tunnel: !cat /tmp/tunnel.log")
-print("   • Xem PID:        !cat /tmp/qemu.pid")
-print("   • Dừng VM:        !kill $(cat /tmp/qemu.pid)")
+# Keep running
+wait
