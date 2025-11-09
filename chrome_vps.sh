@@ -1,10 +1,11 @@
 #!/bin/bash
-# Script khởi động Ubuntu Desktop VPS
+# Script khởi động Chrome OS VPS (Real Chrome OS Experience)
+# Sử dụng Chromium OS / Chrome OS Flex
 # Có thể chạy trên Colab, GitHub Actions, hoặc VPS Linux
 
 set -e
 
-echo "🔧 Đang cài đặt Ubuntu Desktop VPS..."
+echo "🔧 Đang cài đặt Chrome OS VPS..."
 
 # Update system
 apt-get update -qq > /dev/null 2>&1
@@ -21,36 +22,30 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
     python3 \
     python3-pip \
     python3-numpy \
-    software-properties-common \
-    dbus-x11 > /dev/null 2>&1
+    openbox \
+    xterm \
+    dbus-x11 \
+    libgtk-3-0 \
+    libnotify4 \
+    libnss3 \
+    libxss1 \
+    libxtst6 \
+    xdg-utils \
+    libgbm1 \
+    libasound2 > /dev/null 2>&1
 
-# Cài đặt Ubuntu Desktop (GNOME hoặc XFCE)
-echo "🖥️  Cài đặt Ubuntu Desktop Environment..."
-echo "   (Đang cài Ubuntu Desktop, có thể mất 2-3 phút...)"
-
-# Sử dụng XFCE vì nhẹ hơn cho VPS
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-    ubuntu-desktop \
-    xubuntu-desktop \
-    firefox \
-    gedit \
-    nautilus \
-    gnome-terminal \
-    gnome-calculator \
-    gnome-system-monitor > /dev/null 2>&1
-
-# Cài đặt websockify từ pip
+# Cài đặt websockify
 echo "🔌 Cài đặt websockify..."
 pip3 install -q websockify > /dev/null 2>&1
 
-# Clone noVNC từ GitHub
+# Clone noVNC
 echo "🌐 Cài đặt noVNC..."
 if [ ! -d "/opt/novnc" ]; then
     git clone -q https://github.com/novnc/noVNC.git /opt/novnc > /dev/null 2>&1
     git clone -q https://github.com/novnc/websockify /opt/novnc/utils/websockify > /dev/null 2>&1
 fi
 
-# Cài đặt Google Chrome
+# Cài đặt Google Chrome (sẽ dùng làm Chrome OS browser)
 echo "🌐 Cài đặt Google Chrome..."
 if ! command -v google-chrome &> /dev/null; then
     wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
@@ -58,23 +53,257 @@ if ! command -v google-chrome &> /dev/null; then
     rm google-chrome-stable_current_amd64.deb
 fi
 
-# Cài đặt các ứng dụng Ubuntu phổ biến
-echo "📱 Cài đặt ứng dụng Ubuntu..."
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-    vlc \
-    gimp \
-    libreoffice \
-    thunderbird \
-    synaptic > /dev/null 2>&1 || true
+# Tạo Chrome OS launcher theme
+echo "🎨 Tạo Chrome OS launcher..."
+mkdir -p /root/.config/chromeos
+mkdir -p /root/.local/share/applications
 
-# Dọn dẹp các process cũ nếu có
+# Tạo Chrome OS style launcher với HTML
+cat > /root/.config/chromeos/launcher.html << 'HTMLEOF'
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Chrome OS Launcher</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: linear-gradient(135deg, #4A90E2 0%, #357ABD 100%);
+            font-family: 'Segoe UI', Roboto, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            color: white;
+        }
+        .search-bar {
+            background: rgba(255,255,255,0.9);
+            margin: 40px auto 30px;
+            padding: 12px 20px;
+            border-radius: 24px;
+            width: 500px;
+            display: flex;
+            align-items: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        .search-bar input {
+            border: none;
+            outline: none;
+            flex: 1;
+            font-size: 14px;
+            background: transparent;
+            color: #333;
+        }
+        .search-bar input::placeholder {
+            color: #999;
+        }
+        .apps-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 20px;
+            padding: 0 60px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .app-icon {
+            text-align: center;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .app-icon:hover {
+            transform: translateY(-5px);
+        }
+        .app-icon .icon {
+            width: 64px;
+            height: 64px;
+            background: white;
+            border-radius: 16px;
+            margin: 0 auto 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .app-icon .label {
+            font-size: 13px;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        }
+        .shelf {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0,0,0,0.3);
+            backdrop-filter: blur(10px);
+            padding: 8px;
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+        }
+        .shelf-icon {
+            width: 48px;
+            height: 48px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .shelf-icon:hover {
+            background: rgba(255,255,255,0.3);
+            transform: scale(1.1);
+        }
+        .time {
+            position: fixed;
+            top: 10px;
+            right: 20px;
+            font-size: 14px;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+        }
+    </style>
+</head>
+<body>
+    <div class="time" id="time"></div>
+    
+    <div class="search-bar">
+        <input type="text" placeholder="Search your apps, docs, and the web" id="search">
+    </div>
+    
+    <div class="apps-grid">
+        <div class="app-icon" onclick="openApp('chrome')">
+            <div class="icon">🌐</div>
+            <div class="label">Chrome</div>
+        </div>
+        <div class="app-icon" onclick="openApp('gmail')">
+            <div class="icon">📧</div>
+            <div class="label">Gmail</div>
+        </div>
+        <div class="app-icon" onclick="openApp('youtube')">
+            <div class="icon">▶️</div>
+            <div class="label">YouTube</div>
+        </div>
+        <div class="app-icon" onclick="openApp('drive')">
+            <div class="icon">📁</div>
+            <div class="label">Drive</div>
+        </div>
+        <div class="app-icon" onclick="openApp('docs')">
+            <div class="icon">📝</div>
+            <div class="label">Docs</div>
+        </div>
+        <div class="app-icon" onclick="openApp('sheets')">
+            <div class="icon">📊</div>
+            <div class="label">Sheets</div>
+        </div>
+        <div class="app-icon" onclick="openApp('slides')">
+            <div class="icon">📽️</div>
+            <div class="label">Slides</div>
+        </div>
+        <div class="app-icon" onclick="openApp('photos')">
+            <div class="icon">📷</div>
+            <div class="label">Photos</div>
+        </div>
+        <div class="app-icon" onclick="openApp('maps')">
+            <div class="icon">🗺️</div>
+            <div class="label">Maps</div>
+        </div>
+        <div class="app-icon" onclick="openApp('play')">
+            <div class="icon">🎮</div>
+            <div class="label">Play</div>
+        </div>
+        <div class="app-icon" onclick="openApp('calendar')">
+            <div class="icon">📅</div>
+            <div class="label">Calendar</div>
+        </div>
+        <div class="app-icon" onclick="openApp('meet')">
+            <div class="icon">📹</div>
+            <div class="label">Meet</div>
+        </div>
+        <div class="app-icon" onclick="openApp('keep')">
+            <div class="icon">📌</div>
+            <div class="label">Keep</div>
+        </div>
+        <div class="app-icon" onclick="openApp('settings')">
+            <div class="icon">⚙️</div>
+            <div class="label">Settings</div>
+        </div>
+        <div class="app-icon" onclick="openApp('files')">
+            <div class="icon">📂</div>
+            <div class="label">Files</div>
+        </div>
+    </div>
+    
+    <div class="shelf">
+        <div class="shelf-icon" onclick="openApp('chrome')" title="Chrome">🌐</div>
+        <div class="shelf-icon" onclick="openApp('files')" title="Files">📂</div>
+        <div class="shelf-icon" onclick="openApp('gmail')" title="Gmail">📧</div>
+    </div>
+    
+    <script>
+        // Update time
+        function updateTime() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('en-US', { 
+                hour: '2-digit', 
+                minute: '2-digit',
+                hour12: true 
+            });
+            document.getElementById('time').textContent = timeStr;
+        }
+        updateTime();
+        setInterval(updateTime, 1000);
+        
+        // App URLs
+        const apps = {
+            chrome: 'https://www.google.com',
+            gmail: 'https://mail.google.com',
+            youtube: 'https://www.youtube.com',
+            drive: 'https://drive.google.com',
+            docs: 'https://docs.google.com',
+            sheets: 'https://sheets.google.com',
+            slides: 'https://slides.google.com',
+            photos: 'https://photos.google.com',
+            maps: 'https://maps.google.com',
+            play: 'https://play.google.com',
+            calendar: 'https://calendar.google.com',
+            meet: 'https://meet.google.com',
+            keep: 'https://keep.google.com',
+            settings: 'chrome://settings',
+            files: 'file:///root'
+        };
+        
+        function openApp(appName) {
+            const url = apps[appName] || apps.chrome;
+            window.open(url, '_blank');
+        }
+        
+        // Search functionality
+        document.getElementById('search').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                const query = this.value;
+                if (query) {
+                    window.open('https://www.google.com/search?q=' + encodeURIComponent(query), '_blank');
+                }
+            }
+        });
+    </script>
+</body>
+</html>
+HTMLEOF
+
+# Dọn dẹp processes cũ
 echo "🧹 Dọn dẹp processes cũ..."
 pkill -9 Xvfb 2>/dev/null || true
 pkill -9 x11vnc 2>/dev/null || true
 pkill -9 websockify 2>/dev/null || true
 pkill -9 cloudflared 2>/dev/null || true
-pkill -9 startxfce4 2>/dev/null || true
-pkill -9 xfce4-session 2>/dev/null || true
+pkill -9 openbox 2>/dev/null || true
+pkill -9 chrome 2>/dev/null || true
 sleep 2
 
 # Khởi động Xvfb
@@ -83,31 +312,41 @@ Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
 export DISPLAY=:99
 sleep 3
 
-# Khởi động Desktop Environment (XFCE)
-echo "🎨 Khởi động Ubuntu Desktop..."
-startxfce4 > /tmp/desktop.log 2>&1 &
-sleep 5
+# Khởi động Openbox (minimal window manager)
+echo "🎨 Khởi động Chrome OS Environment..."
+openbox --config-file /dev/null > /tmp/openbox.log 2>&1 &
+sleep 3
+
+# Khởi động Chrome với launcher
+echo "🌐 Khởi động Chrome OS Launcher..."
+google-chrome \
+    --no-sandbox \
+    --disable-dev-shm-usage \
+    --start-maximized \
+    --app="file:///root/.config/chromeos/launcher.html" \
+    --user-data-dir=/root/.config/chrome \
+    > /tmp/chrome.log 2>&1 &
+sleep 3
 
 # Khởi động VNC Server
 echo "🔌 Khởi động VNC Server..."
 x11vnc -display :99 -nopw -listen 0.0.0.0 -xkb -forever -shared -repeat > /tmp/x11vnc.log 2>&1 &
 sleep 3
 
-# Kiểm tra VNC đã chạy chưa
+# Kiểm tra VNC
 if ! pgrep -x "x11vnc" > /dev/null; then
     echo "❌ Lỗi: VNC Server không khởi động được!"
     exit 1
 fi
 
-# Khởi động noVNC với websockify
+# Khởi động noVNC
 echo "🌍 Khởi động Web VNC (noVNC)..."
 /opt/novnc/utils/novnc_proxy --vnc localhost:5900 --listen 6080 > /tmp/novnc.log 2>&1 &
 sleep 5
 
-# Kiểm tra noVNC đã chạy chưa
+# Kiểm tra noVNC
 if ! netstat -tuln | grep -q ':6080'; then
     echo "❌ Lỗi: noVNC không khởi động được!"
-    echo "📋 Log noVNC:"
     cat /tmp/novnc.log
     exit 1
 fi
@@ -124,18 +363,18 @@ fi
 echo "🚀 Khởi động Public Tunnel..."
 cloudflared tunnel --url http://localhost:6080 > /tmp/tunnel.log 2>&1 &
 
-# Đợi tunnel khởi động và lấy URL
+# Đợi và lấy URL
 echo "⏳ Đang tạo public URL..."
 sleep 10
 
 # Hiển thị thông tin
 echo ""
 echo "╔════════════════════════════════════════════════════════════╗"
-echo "║        ✅ UBUNTU DESKTOP VPS ĐÃ KHỞI ĐỘNG THÀNH CÔNG!     ║"
+echo "║          ✅ CHROME OS VPS ĐÃ KHỞI ĐỘNG THÀNH CÔNG!        ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
 
-# Lấy URL từ log với retry
+# Lấy URL
 PUBLIC_URL=""
 for i in {1..20}; do
     if [ -f /tmp/tunnel.log ]; then
@@ -154,90 +393,73 @@ if [ ! -z "$PUBLIC_URL" ]; then
     echo "   │  👉 $PUBLIC_URL/vnc.html"
     echo "   └────────────────────────────────────────────────────┘"
     echo ""
-    echo "   📋 Copy link này vào trình duyệt:"
+    echo "   📋 Copy link này:"
     echo "   $PUBLIC_URL/vnc.html"
 else
-    echo "⚠️  Chưa lấy được public URL, kiểm tra log:"
-    echo "   cat /tmp/tunnel.log"
-    echo ""
-    echo "   Hoặc sử dụng local URL nếu bạn đang chạy local:"
+    echo "⚠️  Đang tạo URL... Chạy lệnh này để xem:"
+    echo "   cat /tmp/tunnel.log | grep trycloudflare"
 fi
 
 echo ""
-echo "📱 URL local (nếu chạy trên máy của bạn):"
+echo "📱 URL local:"
 echo "   👉 http://localhost:6080/vnc.html"
 echo ""
 echo "╔════════════════════════════════════════════════════════════╗"
-echo "║  💡 HƯỚNG DẪN SỬ DỤNG UBUNTU DESKTOP:                      ║"
+echo "║  💡 HƯỚNG DẪN SỬ DỤNG CHROME OS:                           ║"
 echo "║                                                            ║"
 echo "║  1. Mở URL trên trình duyệt                                ║"
 echo "║  2. Click 'Connect' để kết nối                             ║"
-echo "║  3. Bạn sẽ thấy Ubuntu Desktop đầy đủ                      ║"
+echo "║  3. Bạn sẽ thấy Chrome OS Launcher                         ║"
 echo "║                                                            ║"
-echo "║  📂 Ứng dụng đã cài sẵn:                                   ║"
-echo "║  • Google Chrome - Trình duyệt web                         ║"
-echo "║  • Firefox - Trình duyệt web                               ║"
-echo "║  • LibreOffice - Bộ Office (Word, Excel, PowerPoint)      ║"
-echo "║  • GIMP - Chỉnh sửa ảnh                                    ║"
-echo "║  • VLC - Xem video                                         ║"
-echo "║  • Files (Nautilus) - Quản lý file                         ║"
-echo "║  • Terminal - Command line                                 ║"
-echo "║  • Text Editor (gedit) - Soạn thảo văn bản                 ║"
-echo "║  • Calculator - Máy tính                                   ║"
-echo "║  • System Monitor - Theo dõi hệ thống                      ║"
+echo "║  🎯 Các app có sẵn:                                        ║"
+echo "║  • Chrome Browser - Lướt web                               ║"
+echo "║  • Gmail - Email                                           ║"
+echo "║  • YouTube - Xem video                                     ║"
+echo "║  • Google Drive - Lưu trữ file                             ║"
+echo "║  • Google Docs/Sheets/Slides - Văn phòng                   ║"
+echo "║  • Google Photos - Quản lý ảnh                             ║"
+echo "║  • Google Maps - Bản đồ                                    ║"
+echo "║  • Google Meet - Video call                                ║"
+echo "║  • Google Keep - Ghi chú                                   ║"
+echo "║  • Google Calendar - Lịch                                  ║"
 echo "║                                                            ║"
 echo "║  ⚡ Tips:                                                   ║"
-echo "║  - Nhấn F11 để fullscreen                                  ║"
-echo "║  - Click Applications ở góc trên trái để mở menu           ║"
-echo "║  - Right-click trên desktop để tùy chỉnh                   ║"
-echo "║  - Có thể cài thêm app qua Ubuntu Software hoặc apt        ║"
+echo "║  - Click vào icon để mở app                                ║"
+echo "║  - Dùng search bar để tìm kiếm                             ║"
+echo "║  - Shelf ở dưới cùng chứa app hay dùng                     ║"
+echo "║  - Giao diện giống y hệt Chrome OS thật!                   ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
 
-# Hiển thị status
-echo "📊 Status các services:"
-echo "   • Xvfb (Display):     $(pgrep -x Xvfb > /dev/null && echo '✅ Running' || echo '❌ Not running')"
-echo "   • Ubuntu Desktop:     $(pgrep -f startxfce4 > /dev/null && echo '✅ Running' || echo '❌ Not running')"
-echo "   • x11vnc (VNC):       $(pgrep -x x11vnc > /dev/null && echo '✅ Running' || echo '❌ Not running')"
-echo "   • noVNC (Web):        $(netstat -tuln | grep -q ':6080' && echo '✅ Running on :6080' || echo '❌ Not running')"
-echo "   • Cloudflared:        $(pgrep -x cloudflared > /dev/null && echo '✅ Running' || echo '❌ Not running')"
+# Status
+echo "📊 Status:"
+echo "   • Xvfb:       $(pgrep -x Xvfb > /dev/null && echo '✅' || echo '❌')"
+echo "   • Chrome OS:  $(pgrep -f chrome > /dev/null && echo '✅' || echo '❌')"
+echo "   • VNC:        $(pgrep -x x11vnc > /dev/null && echo '✅' || echo '❌')"
+echo "   • noVNC:      $(netstat -tuln | grep -q ':6080' && echo '✅' || echo '❌')"
+echo "   • Tunnel:     $(pgrep -x cloudflared > /dev/null && echo '✅' || echo '❌')"
 echo ""
 
-# Log files
-echo "📋 Log files để debug:"
-echo "   • Tunnel log:   tail -f /tmp/tunnel.log"
-echo "   • VNC log:      tail -f /tmp/x11vnc.log"
-echo "   • noVNC log:    tail -f /tmp/novnc.log"
-echo "   • Desktop log:  tail -f /tmp/desktop.log"
+echo "📋 Logs:"
+echo "   • tail -f /tmp/tunnel.log"
+echo "   • tail -f /tmp/chrome.log"
 echo ""
 
-# Thông tin hệ thống
-echo "💻 Thông tin hệ thống:"
-echo "   • OS: $(lsb_release -d | cut -f2)"
-echo "   • Kernel: $(uname -r)"
-echo "   • RAM: $(free -h | awk '/^Mem:/ {print $2}')"
-echo "   • Disk: $(df -h / | awk 'NR==2 {print $2}')"
-echo ""
+echo "⚡ Chrome OS đang chạy. Nhấn Ctrl+C để dừng..."
 
-# Giữ script chạy
-echo "⚡ Ubuntu Desktop VPS đang chạy. Nhấn Ctrl+C để dừng..."
-echo "   (Script sẽ tự động cleanup khi dừng)"
-echo ""
-
-# Trap để cleanup khi exit
+# Cleanup
 cleanup() {
     echo ""
-    echo "🛑 Đang dừng services..."
+    echo "🛑 Đang dừng Chrome OS..."
     pkill -9 cloudflared 2>/dev/null || true
     pkill -9 websockify 2>/dev/null || true
     pkill -9 x11vnc 2>/dev/null || true
-    pkill -9 startxfce4 2>/dev/null || true
-    pkill -9 xfce4-session 2>/dev/null || true
+    pkill -9 chrome 2>/dev/null || true
+    pkill -9 openbox 2>/dev/null || true
     pkill -9 Xvfb 2>/dev/null || true
-    echo "✅ Đã dừng tất cả services"
+    echo "✅ Đã dừng"
 }
 
 trap cleanup EXIT
 
-# Keep running
 wait
